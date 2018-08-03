@@ -231,70 +231,6 @@ const struct s2n_cipher_preferences cipher_preferences_20170405 = {
     .minimum_protocol_version = S2N_TLS10
 };
 
-struct s2n_cipher_suite *cipher_suites_20170611[] = {
-    &s2n_ecdhe_rsa_with_aes_128_gcm_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha,
-    &s2n_ecdhe_rsa_with_aes_256_gcm_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_gcm_sha256,
-    &s2n_rsa_with_aes_256_gcm_sha384,
-    &s2n_rsa_with_aes_128_cbc_sha256,
-    &s2n_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_cbc_sha,
-    &s2n_rsa_with_3des_ede_cbc_sha,
-    &s2n_rsa_with_rc4_128_md5,
-};
-
-const struct s2n_cipher_preferences cipher_preferences_20140611 = {
-    .count = sizeof(cipher_suites_20140611) / sizeof(cipher_suites_20140611[0]),
-    .suites = cipher_suites_20140611,
-    .minimum_protocol_version = S2N_SSLv3
-};
-
-/* Require TLS >= 1.1 */
-struct s2n_cipher_suite *cipher_suites_20170612[] = {
-    &s2n_ecdhe_rsa_with_aes_128_gcm_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha,
-    &s2n_ecdhe_rsa_with_aes_256_gcm_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_gcm_sha256,
-    &s2n_rsa_with_aes_256_gcm_sha384,
-    &s2n_rsa_with_aes_128_cbc_sha256,
-    &s2n_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_cbc_sha,
-};
-
-const struct s2n_cipher_preferences cipher_preferences_20140613 = {
-    .count = sizeof(cipher_suites_20140613) / sizeof(cipher_suites_20140613[0]),
-    .suites = cipher_suites_20140613,
-    .minimum_protocol_version = S2N_TLS11
-};
-
-/* Require TLS >= 1.2 */
-struct s2n_cipher_suite *cipher_suites_20170613[] = {
-    &s2n_ecdhe_rsa_with_aes_128_gcm_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha256,
-    &s2n_ecdhe_rsa_with_aes_128_cbc_sha,
-    &s2n_ecdhe_rsa_with_aes_256_gcm_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha384,
-    &s2n_ecdhe_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_gcm_sha256,
-    &s2n_rsa_with_aes_256_gcm_sha384,
-    &s2n_rsa_with_aes_128_cbc_sha256,
-    &s2n_rsa_with_aes_256_cbc_sha,
-    &s2n_rsa_with_aes_128_cbc_sha,
-};
-
-const struct s2n_cipher_preferences cipher_preferences_20140614 = {
-    .count = sizeof(cipher_suites_20140614) / sizeof(cipher_suites_20140614[0]),
-    .suites = cipher_suites_20140614,
-    .minimum_protocol_version = S2N_TLS12
-};
-
 struct {
     const char *version;
     const struct s2n_cipher_preferences *preferences;
@@ -312,10 +248,7 @@ struct {
     "20170210", &cipher_preferences_20170210}, {
     "20170328", &cipher_preferences_20170328}, {
     "20170405", &cipher_preferences_20170405}, {
-    "20170611", &cipher_preferences_20170611}, {
-    "20170612", &cipher_preferences_20170612}, {
-    "20170613", &cipher_preferences_20170613}, {
-    "test_all", &cipher_protocol_preferences_test_all}, {
+    "test_all", &cipher_preferences_test_all}, {
     NULL, NULL}
 };
 
