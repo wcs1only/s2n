@@ -33,6 +33,11 @@
 #define TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 0x00, 0x6B
 #define TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA   0x00, 0x16
 
+#define TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA       0xC0, 0x09
+#define TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256    0xC0, 0x23
+#define TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA       0xC0, 0x0A
+#define TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384    0xC0, 0x24
+
 #define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA       0xC0, 0x13
 #define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256    0xC0, 0x27
 #define TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA       0xC0, 0x14
@@ -43,6 +48,8 @@
 #define TLS_RSA_WITH_AES_256_GCM_SHA384          0x00, 0x9D
 #define TLS_DHE_RSA_WITH_AES_128_GCM_SHA256      0x00, 0x9E
 #define TLS_DHE_RSA_WITH_AES_256_GCM_SHA384      0x00, 0x9F
+#define TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256  0xC0, 0x2B
+#define TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384  0xC0, 0x2C
 #define TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256    0xC0, 0x2F
 #define TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384    0xC0, 0x30
 
@@ -55,6 +62,7 @@
 
 /* TLS extensions from https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml */
 #define TLS_EXTENSION_SERVER_NAME           0
+#define TLS_EXTENSION_MAX_FRAG_LEN          1
 #define TLS_EXTENSION_STATUS_REQUEST        5
 #define TLS_EXTENSION_ELLIPTIC_CURVES      10
 #define TLS_EXTENSION_EC_POINT_FORMATS     11
@@ -69,12 +77,17 @@
 #define TLS_SIGNATURE_ALGORITHM_DSA         2
 #define TLS_SIGNATURE_ALGORITHM_ECDSA       3
 
+#define TLS_SIGNATURE_ALGORITHM_COUNT       4
+
+#define TLS_HASH_ALGORITHM_ANONYMOUS        0
 #define TLS_HASH_ALGORITHM_MD5              1
 #define TLS_HASH_ALGORITHM_SHA1             2
 #define TLS_HASH_ALGORITHM_SHA224           3
 #define TLS_HASH_ALGORITHM_SHA256           4
 #define TLS_HASH_ALGORITHM_SHA384           5
 #define TLS_HASH_ALGORITHM_SHA512           6
+
+#define TLS_HASH_ALGORITHM_COUNT            7
 
 /* The TLS record types we support */
 #define TLS_CHANGE_CIPHER_SPEC 20
@@ -100,6 +113,7 @@
 #define S2N_TLS_RECORD_HEADER_LENGTH    5
 #define S2N_TLS_MAXIMUM_FRAGMENT_LENGTH 16384
 #define S2N_TLS_MAXIMUM_RECORD_LENGTH   (S2N_TLS_MAXIMUM_FRAGMENT_LENGTH + S2N_TLS_RECORD_HEADER_LENGTH)
+#define S2N_TLS_MAX_FRAG_LEN_EXT_NONE   0
 
 /* The maximum size of an SSL2 message is 2^14 - 1, as neither of the first two
  * bits in the length field are usable. Per;

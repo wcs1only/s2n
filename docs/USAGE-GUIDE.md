@@ -9,14 +9,75 @@ cd s2n
 ```
 
 ## Building s2n with existing libcrypto
-
+### make Instructions
 To build s2n with an existing libcrypto installation, store its root folder in the
 `LIBCRYPTO_ROOT` environment variable.
 ```shell
 # /usr/local/ssl/lib should contain libcrypto.a
 LIBCRYPTO_ROOT=/usr/local/ssl make
 ```
+### CMake Instructions
 
+Throughout this document, there are instructions for setting a `LIBCRYPTO_ROOT` environment variable, or setting install prefixes to `s2n/lib-crypto-root`. If you 
+are using CMake that step is unnecessary. Just follow the instructions here to use any build of libcrypto.
+
+(Required): You need at least CMake version 3.0 to fully benefit from Modern CMake. See [this](https://www.youtube.com/watch?v=bsXLMQ6WgIk) for more information.
+
+(Optional): Set the CMake variable `LibCrypto_ROOT_DIR` to any libcrypto build on your machine. If you do not,
+the default installation on your machine will be used.
+
+(Optional): Set the CMake variable `BUILD_SHARED_LIBS=ON` to build shared libraries. The default is static.
+ 
+We recommend an out-of-source build. Suppose you have a directory `s2n` which contains the s2n source code. At the same level
+we can create a directory called `s2n-build`
+
+For example, we can build and install shared libs using ninja as our build system, and the system libcrypto implementation.
+
+````shell
+mkdir s2n-build
+cd s2n-build
+cmake ../s2n -DBUILD_SHARED_LIBS=ON -GNinja
+ninja
+ninja test 
+sudo ninja install
+````
+
+For another example, we can prepare an Xcode project using static libs using a libcrypto implementation in the directory `$HOME/s2n-user/builds/libcrypto-impl`.
+
+````shell
+mkdir s2n-build
+cd s2n-build
+cmake ../s2n -DLibCrypto_ROOT_DIR=$HOME/s2n-user/builds/libcrypto-impl -G "Xcode"
+# now open the project in Xcode and build from there, or use the Xcode CLI
+````
+
+Or, for unix style vanilla builds:
+
+````shell
+mkdir s2n-build
+cd s2n-build
+cmake ../s2n
+make
+make test
+sudo make install
+````
+
+### Consuming s2n via. CMake
+s2n ships with modern CMake finder scripts if CMake is used for the build. To take advantage of this from your CMake script, all you need to do to compile and link against s2n in your project is:
+
+````shell
+find_package(s2n)
+
+....
+
+target_link_libraries(yourExecutableOrLibrary s2n)
+````
+
+And when invoking CMake for your project, do one of three things:
+ 1. Append the `CMAKE_PREFIX_PATH` variable with the path to your s2n build.
+ 2. Set the `s2n_DIR` CMake variable
+ 3. If you have globally installed s2n, do nothing, it will automatically be found.
+ 
 ## Building s2n with OpenSSL-1.1.0
 
 To build s2n with OpenSSL-1.1.0, do the following:
@@ -152,7 +213,7 @@ s2n also reads this for unit tests. Try `S2N_DONT_MLOCK=1 make` if you're having
 
 ## client mode
 
-At this time s2n does not perform certificate validation and client mode is
+At this time x509 certificate validation is undergoing further testing and client mode is
 disabled as a precaution. To enable client mode for testing and development,
 set the **S2N_ENABLE_CLIENT_MODE** environment variable.
 
@@ -251,6 +312,29 @@ typedef enum { S2N_STATUS_REQUEST_NONE, S2N_STATUS_REQUEST_OCSP } s2n_status_req
 status request an S2N_CLIENT should make during the handshake. The only
 supported status request type is OCSP, **S2N_STATUS_REQUEST_OCSP**.
 
+
+```c
+typedef enum { S2N_CERT_AUTH_NONE, S2N_CERT_AUTH_REQUIRED, S2N_CERT_AUTH_OPTIONAL } s2n_cert_auth_type;
+```
+**s2n_cert_auth_type** is used to declare what type of client certificiate authentication to use.
+Currently the default for s2n is for neither the server side or the client side to use Client (aka Mutual) authentication.
+
+```c
+typedef enum {
+    S2N_CERT_TYPE_RSA_SIGN = 1,
+    S2N_CERT_TYPE_DSS_SIGN = 2,
+    S2N_CERT_TYPE_RSA_FIXED_DH = 3,
+    S2N_CERT_TYPE_DSS_FIXED_DH = 4,
+    S2N_CERT_TYPE_RSA_EPHEMERAL_DH_RESERVED = 5,
+    S2N_CERT_TYPE_DSS_EPHEMERAL_DH_RESERVED = 6,
+    S2N_CERT_TYPE_FORTEZZA_DMS_RESERVED = 20,
+    S2N_CERT_TYPE_ECDSA_SIGN = 64,
+    S2N_CERT_TYPE_RSA_FIXED_ECDH = 65,
+    S2N_CERT_TYPE_ECDSA_FIXED_ECDH = 66,
+} s2n_cert_type;
+```
+**s2n_cert_type** is used to define what type of Certificate was used in a connection.
+
 ## Opaque structures
 
 s2n defines two opaque structures that are used for managed objects. Because
@@ -266,25 +350,40 @@ struct s2n_connection;
 holding cryptographic certificates, keys and preferences. **s2n_connection**
 structures are used to track each connection.
 
+
+```c
+struct s2n_rsa_public_key;
+struct s2n_cert_public_key;
+```
+
+**s2n_rsa_public_key** and **s2n_cert_public_key** can be used by consumers of s2n to get and set public keys through other API calls.
+
+
 ## Error handling
+
+```
+const char *s2n_strerror(int error, const char *lang);
+const char *s2n_strerror_debug(int error, const char *lang);
+````
 
 s2n functions that return 'int' return 0 to indicate success and -1 to indicate
 failure. s2n functions that return pointer types return NULL in the case of
 failure. When an s2n function returns a failure, s2n_errno will be set to a value
-corresponding to the error. This error value can be translated into a string 
-explaining the error in English by calling s2n_strerror(s2n_errno, "EN"); 
+corresponding to the error. This error value can be translated into a string
+explaining the error in English by calling s2n_strerror(s2n_errno, "EN");
+A string containing internal debug information, including filename and line number, can be generated with `s2n_strerror_debug`
+This string is useful to include when reporting issues to the s2n development team.
 
 Example:
 
 ```
 if (s2n_config_set_cipher_preferences(config, prefs) < 0) {
-    printf("Setting cipher prefs failed! %s", (s2n_strerror(s2n_errno, "EN"));
+    printf("Setting cipher prefs failed! %s : %s", s2n_strerror(s2n_errno, "EN"), s2n_strerror_debug(s2n_errno, "EN"));
     return -1;
 }
 ```
 
 **NOTE**: To avoid possible confusion, s2n_errno should be cleared after processing an error: `s2n_errno = S2N_ERR_T_OK`
-
 
 ### Error categories
 
@@ -385,8 +484,9 @@ int s2n_config_set_cipher_preferences(struct s2n_config *config,
 |    version | SSLv3 | TLS1.0 | TLS1.1 | TLS1.2 | AES-CBC | ChaCha20-Poly1305 | AES-GCM | 3DES | RC4 | DHE | ECDHE |
 |------------|-------|--------|--------|--------|---------|-------------------|---------|------|-----|-----|-------|
 | "default"  |       |   X    |    X   |    X   |    X    |         X         |    X    |      |     |     |   X   |
-| "20170328" |       |   X    |    X   |    X   |    X    |                   |    X    |  X   |     |  X  |   X   |
+| "20170718" |       |   X    |    X   |    X   |    X    |                   |    X    |      |     |     |   X   |
 | "20170405" |       |   X    |    X   |    X   |    X    |                   |    X    |  X   |     |     |   X   |
+| "20170328" |       |   X    |    X   |    X   |    X    |                   |    X    |  X   |     |  X  |   X   |
 | "20170210" |       |   X    |    X   |    X   |    X    |         X         |    X    |      |     |     |   X   |
 | "20160824" |       |   X    |    X   |    X   |    X    |                   |    X    |      |     |     |   X   |
 | "20160804" |       |   X    |    X   |    X   |    X    |                   |    X    |  X   |     |     |   X   |
@@ -453,7 +553,8 @@ preference, with most preferred protocol first, and of length
 **protocol_count**.  When acting as an **S2N_CLIENT** the protocol list is
 included in the Client Hello message as the ALPN extension.  As an
 **S2N_SERVER**, the list is used to negotiate a mutual application protocol
-with the client.
+with the client. After the negotiation for the connection has completed, the
+agreed upon protocol can be retrieved with [s2n_get_application_protocol](#s2n_get_application_protocol)
 
 ### s2n\_config\_set\_status\_request\_type
 
@@ -480,8 +581,15 @@ is set in the **s2n_config** object, effectively clearing existing data.
 
 ```c
     typedef enum {
+      S2N_EXTENSION_SERVER_NAME = 0,
+      S2N_EXTENSION_MAX_FRAG_LEN = 1,
       S2N_EXTENSION_OCSP_STAPLING = 5,
-      S2N_EXTENSION_CERTIFICATE_TRANSPARENCY = 18
+      S2N_EXTENSION_ELLIPTIC_CURVES = 10,
+      S2N_EXTENSION_EC_POINT_FORMATS = 11,
+      S2N_EXTENSION_SIGNATURE_ALGORITHMS = 13,
+      S2N_EXTENSION_ALPN = 16,
+      S2N_EXTENSION_CERTIFICATE_TRANSPARENCY = 18,
+      S2N_EXTENSION_RENEGOTIATION_INFO = 65281,
     } s2n_tls_extension_type;
 ```
 
@@ -498,22 +606,102 @@ SignedCertificateTimestampList structure defined in that document.  See
 http://www.certificate-transparency.org/ for more information about Certificate
 Transparency.
 
-### s2n\_config\_set\_nanoseconds\_since\_epoch\_callback
+### s2n\_config\_set\_wall\_clock
 
 ```c
-int s2n_config_set_nanoseconds_since_epoch_callback(struct s2n_config *config, int (*nanoseconds_since_epoch)(void *, uint64_t *), void * data);
+int s2n_config_set_wall_clock(struct s2n_config *config, s2n_clock_time_nanoseconds clock_fn, void *data);
 ```
 
-**s2n_config_set_nanoseconds_since_epoch_callback** allows the caller to set a
-callback function that will be used to get the time. The callback function
+**s2n_config_set_wall_clock** allows the caller to set a
+callback function that will be used to get the system time. The callback function
 takes two arguments; a pointer to abitrary data for use within the callback,
 and a pointer to a 64 bit unsigned integer. The first pointer will be set to
 the value of **data** which supplied by the caller when setting the callback.
 The integer pointed to by the second pointer should be set to the number of
 nanoseconds since the Unix epoch (Midnight, January 1st, 1970). The function
-should return 0 on success and -1 on error. The function is also required to 
-implement a monotonic time source; the number of nanoseconds returned should
-never decrease between calls.
+should return 0 on success and -1 on error. The default implementation, which uses the REALTIME clock,
+will be used if this callback is not manually set.
+
+### s2n\_config\_set\_monotonic\_clock
+
+```c
+int s2n_config_set_monotonic_clock(struct s2n_config *config, s2n_clock_time_nanoseconds clock_fn, void *data);
+```
+
+**s2n_config_set_monotonic_clock** allows the caller to set a
+callback function that will be used to get monotonic time. The callback function
+takes two arguments; a pointer to abitrary data for use within the callback,
+and a pointer to a 64 bit unsigned integer. The first pointer will be set to
+the value of **data** which supplied by the caller when setting the callback.
+The integer pointed to by the second pointer should be an always increasing value. The function
+should return 0 on success and -1 on error. The default implementation, which uses the MONOTONIC clock,
+will be used if this callback is not manually set.
+
+### s2n\_config\_set\_verification\_ca\_location
+```c
+int s2n_config_set_verification_ca_location(struct s2n_config *config, const char *ca_pem_filename, const char *ca_dir);
+```
+
+**s2n_config_set_verification_ca_location**  initializes the trust store from a CA file or directory 
+containing trusted certificates.  By default, the trust store will be initialized to the common locations 
+for the host operating system. Call this function to override that behavior.
+Returns 0 on success and -1 on failure.
+
+### s2n\_config\_add\_pem\_to\_trust\_store
+```c
+int s2n_config_add_pem_to_trust_store(struct s2n_config *config, const char *pem);
+```
+
+**s2n_config_add_pem_to_trust_store**  Initialize trust store from a PEM. This will allocate memory, and load PEM into the Trust Store
+
+### s2n\_verify\_host\_fn
+```c
+typedef uint8_t (*s2n_verify_host_fn) (const char *host_name, size_t host_name_len, void *ctx);
+```
+
+**s2n_verify_host_fn** is invoked (usually multiple times) during X.509 validation for each name encountered in the leaf certificate. 
+Return 1 to trust that hostname or 0 to not trust the hostname. If this function returns 1, then the certificate is considered trusted and that portion
+of the X.509 validation will succeed. If no hostname results in a 1 being returned, 
+the certificate will be untrusted and the validation will terminate immediately. The default behavior is to reject all host names found in a certificate
+if client mode or client authentication is being used..
+
+### s2n\_config\_set\_verify\_host\_callback
+```c
+int s2n_config_set_verify_host_callback(struct s2n_config *config, s2n_verify_host_fn, void *ctx);
+```
+
+**s2n_config_set_verify_host_callback** sets the callback to use for verifying that a hostname from an X.509 certificate 
+is trusted. By default, no certificate will be trusted. To override this behavior, set this callback. 
+See [s2n_verify_host_fn](#s2n_verify_host_fn) for details. This configuration will be inherited by default to new instances of **s2n_connection**. 
+If a separate callback for different connections using the same config is desired, see 
+[s2n_connection_set_verify_host_callback](#s2n_connection_set_verify_host_callback).
+
+### s2n\_config\_set\_check\_stapled\_ocsp\_response
+
+```c
+int s2n_config_set_check_stapled_ocsp_response(struct s2n_config *config, uint8_t check_ocsp);
+```
+
+**s2n_config_set_check_stapled_ocsp_response** toggles whether or not to validate stapled OCSP responses. 1 means OCSP responses
+will be validated when they are encountered, while 0 means this step will be skipped. The default value is 1 if the underlying
+libCrypto implementation supports OCSP.  Returns 0 on success and -1 on failure.
+
+### s2n\_config\_disable\_x509\_verification
+
+```c
+int s2n_config_disable_x509_verification(struct s2n_config *config);
+```
+
+**s2n_config_disable_x509_verification** turns off all X.509 validation during the negotiation phase of the connection. This should only be used
+for testing or debugging purposes.
+
+```c
+int s2n_config_set_max_cert_chain_depth(struct s2n_config *config, uint16_t max_depth);
+```
+
+**s2n_config_set_max_cert_chain_depth** sets the maximum allowed depth of a cert chain used for X509 validation. The default value is 7. If this limit
+is exceeded, validation will fail if s2n_config_disable_x509_verification() has not been called. 0 is an illegal value and will return an error. 
+1 means only a root certificate will be used.
 
 ### s2n\_config\_set\_client\_hello\_cb
 
@@ -535,6 +723,32 @@ callback can get any ClientHello infromation from the connection and use
 
 The callback can return 0 to continue handshake in s2n or it can return negative
 value to make s2n terminate handshake early with fatal handshake failure alert.
+
+## Client Auth Related calls
+Client Auth Related API's are not recommended for normal users. Use of these API's is discouraged.
+
+1. Using these API's requires users to: Complete full x509 parsing and hostname validation in the application layer
+2. Application knowledge of TLS code points for certificate types
+3. Application dependency on libcrypto to give a libcrypto RSA struct back to s2n
+
+### s2n\_config\_set\_client\_auth\_type and s2n\_connection\_set\_client\_auth\_type
+```c
+int s2n_config_set_client_auth_type(struct s2n_config *config, s2n_cert_auth_type cert_auth_type);
+int s2n_connection_set_client_auth_type(struct s2n_connection *conn, s2n_cert_auth_type cert_auth_type);
+```
+Sets whether or not a Client Certificate should be required to complete the TLS Connection. If this is set to
+**S2N_CERT_AUTH_OPTIONAL** the server will request a client certificate but allow the client to not provide one.
+Rejecting a client certificate when using **S2N_CERT_AUTH_OPTIONAL** will terminate the handshake.
+
+### Public Key API's
+```c
+int s2n_rsa_public_key_set_from_openssl(struct s2n_rsa_public_key *s2n_rsa, RSA *openssl_rsa);
+int s2n_cert_public_key_set_cert_type(struct s2n_cert_public_key *cert_pub_key, s2n_cert_type cert_type);
+int s2n_cert_public_key_get_rsa(struct s2n_cert_public_key *cert_pub_key, struct s2n_rsa_public_key **rsa);
+int s2n_cert_public_key_set_rsa(struct s2n_cert_public_key *cert_pub_key, struct s2n_rsa_public_key rsa);
+```
+**s2n_rsa_public_key** and **s2n_cert_public_key** are opaque structs. These API's are intended to be used by Implementations of **verify_cert_trust_chain_fn** to
+set the public keys found in the Certificate into **public_key_out**.
 
 ## Session Caching related calls
 
@@ -585,6 +799,28 @@ callback function takes three arguments: a pointer to abitrary data for use
 within the callback, a pointer to a key which can be used to delete the
 cached entry, and a 64 bit unsigned integer specifying the size of this key.
 
+### s2n\_config\_send\_max\_fragment\_length
+
+```c
+int s2n_config_send_max_fragment_length(struct s2n_config *config, uint8_t mfl_code);
+```
+
+**s2n_config_send_max_fragment_length** allows the caller to set a TLS Maximum
+Fragment Length extension that will be used to fragment outgoing messages.
+s2n currently does not reject fragments larger than the configured maximum when
+in server mode. The TLS negotiated maximum fragment length overrides the preference set
+by the **s2n_connection_prefer_throughput** and **s2n_connection_prefer_low_latency**.
+
+### s2n\_config\_accept\_max\_fragment\_length
+
+```c
+int s2n_config_accept_max_fragment_length(struct s2n_config *config);
+```
+
+**s2n_config_accept_max_fragment_length** allows the server to opt-in to accept
+client's TLS maximum fragment length extension requests.
+If this API is not called, and client requests the extension, server will ignore the
+request and continue TLS handshake with default maximum fragment length of 8k bytes
 ## Connection-oriented functions
 
 ### s2n\_connection\_new
@@ -649,6 +885,16 @@ file-descriptor should be active and connected. s2n also supports setting the
 read and write file-descriptors to different values (for pipes or other unusual
 types of I/O).
 
+## s2n\_connection\_set\_cipher\_preferences
+
+```c
+int s2n_connection_set_cipher_preferences(struct s2n_connection *conn, const char *version);
+```
+
+**s2n_connection_set_cipher_preferences** sets the cipher preference override for the
+s2n_connection. Calling this function is not necessary unless you want to set the
+cipher preferences on the connection to something different than what is in the s2n_config.
+
 ### s2n\_set\_server\_name
 
 ```c
@@ -702,7 +948,7 @@ or low latency. Connections prefering low latency will be encrypted using small
 record sizes that can be decrypted sooner by the recipient. Connections
 prefering throughput will use large record sizes that minimize overhead.
 
-Connections prefer low latency by default.
+-Connections default to an 8k outgoing maximum
 
 ### s2n\_connection\_get\_wire\_bytes
 
@@ -733,6 +979,92 @@ returns the protocol version used in the initial client hello message.
 
 Each version number value corresponds to the macros defined as **S2N_SSLv2**,
 **S2N_SSLv3**, **S2N_TLS10**, **S2N_TLS11** and **S2N_TLS12**.
+
+### s2n\_connection\_set\_verify\_host\_callback
+```c
+int s2n_connection_set_verify_host_callback(struct s2n_connection *config, s2n_verify_host_fn host_fn, void *data);
+```
+Every connection inherits the value of **s2n_verify_host_fn** from it's instance of **s2n_config**. 
+Since a configuration can (and should) be used for multiple connections, it may be useful to override 
+this value on a per connection basis. For example, this may be based on a host header from an http request. In that case,
+calling this function will override the value inherited from the configuration. 
+See [s2n_verify_host_fn](#s2n_verify_host_fn) for details.
+
+### s2n\_connection\_get\_client\_hello
+
+```c
+struct s2n_client_hello *s2n_connection_get_client_hello(struct s2n_connection *conn);
+```
+For a given s2n_connection, **s2n_connection_get_client_hello** returns a handle
+to the s2n_client_hello structure holding the client hello message sent by the client during the handshake.
+NULL is returned if the connection has not yet received and parsed the client hello.
+Earliest point during the handshake when this structure is available for use is in the client_hello_callback (see **s2n_config_set_client_hello_cb**).
+
+### s2n\_client\_hello\_get\_raw\_message
+
+```c
+ssize_t s2n_client_hello_get_raw_message_length(struct s2n_client_hello *ch);
+ssize_t s2n_client_hello_get_raw_message(struct s2n_client_hello *ch, uint8_t *out, uint32_t max_length);
+```
+
+- **ch** The s2n_client_hello on the s2n_connection. The handle can be obtained using **s2n_connection_get_client_hello**.
+- **out** Pointer to a buffer into which the raw client hello bytes should be copied.
+- **max_length** Max number of bytes to copy into the **out** buffer.
+
+**s2n_client_hello_get_raw_message_length** returns the size of the ClientHello message received by the server; it can be used to allocate the **out** buffer.
+**s2n_client_hello_get_raw_message** copies **max_lenght** bytes of the ClientHello message into the **out** buffer and returns the number of bytes that were copied.
+The ClientHello instrumented using this function will have the Random bytes zero-ed out.
+
+### s2n\_client\_hello\_get\_cipher\_suites
+
+```c
+ssize_t s2n_client_hello_get_cipher_suites_length(struct s2n_client_hello *ch);
+ssize_t s2n_client_hello_get_cipher_suites(struct s2n_client_hello *ch, uint8_t *out, uint32_t max_length);
+```
+
+- **ch** The s2n_client_hello on the s2n_connection. The handle can be obtained using **s2n_connection_get_client_hello**.
+- **out** Pointer to a buffer into which the cipher_suites bytes should be copied.
+- **max_length** Max number of bytes to copy into the **out** buffer.
+
+**s2n_client_hello_get_cipher_suites_length** returns the number of bytes the cipher_suites takes on the ClientHello message received by the server; it can be used to allocate the **out** buffer.
+**s2n_client_hello_get_cipher_suites** copies into the **out** buffer **max_length** bytes of the cipher_suites on the ClienthHello and returns the number of bytes that were copied.
+
+### s2n\_client\_hello\_get\_extensions
+
+```c
+ssize_t s2n_client_hello_get_extensions_length(struct s2n_client_hello *ch);
+ssize_t s2n_client_hello_get_extensions(struct s2n_client_hello *ch, uint8_t *out, uint32_t max_length);
+```
+
+- **ch** The s2n_client_hello on the s2n_connection. The handle can be obtained using **s2n_connection_get_client_hello**.
+- **out** Pointer to a buffer into which the cipher_suites bytes should be copied.
+- **max_length** Max number of bytes to copy into the **out** buffer.
+
+**s2n_client_hello_get_extensions_length** returns the number of bytes the extensions take on the ClientHello message received by the server; it can be used to allocate the **out** buffer.
+**s2n_client_hello_get_extensions** copies into the **out** buffer **max_length** bytes of the extensions on the ClienthHello and returns the number of bytes that were copied.
+
+### s2n\_client\_hello\_get\_extension
+
+```c
+ssize_t s2n_client_hello_get_extension_length(struct s2n_client_hello *ch, s2n_tls_extension_type extension_type);
+ssize_t s2n_client_hello_get_extension_by_id(struct s2n_client_hello *ch, s2n_tls_extension_type extension_type, uint8_t *out, uint32_t max_length);
+```
+
+- **ch** The s2n_client_hello on the s2n_connection. The handle can be obtained using **s2n_connection_get_client_hello**.
+- **s2n_tls_extension_type** Enum [s2n_tls_extension_type](#s2n\_config\_set\_extension\_data) lists all supported extension types.
+- **out** Pointer to a buffer into which the extension bytes should be copied.
+- **max_length** Max number of bytes to copy into the **out** buffer.
+
+**s2n_client_hello_get_extension_length** returns the number of bytes the given extension type takes on the ClientHello message received by the server; it can be used to allocate the **out** buffer.
+**s2n_client_hello_get_extension_by_id** copies into the **out** buffer **max_length** bytes of a given extension type on the ClienthHello and returns the number of bytes that were copied.
+
+### s2n\_connection\_is\_client\_authenticated
+
+```c
+int s2n_connection_is_client_authenticated(struct s2n_connection *conn);
+```
+**s2n_connection_is_client_authenticated** returns 1 if the handshake completed and Client Auth was 
+negotiated during the handshake.
 
 ### s2n\_get\_application\_protocol
 
@@ -779,6 +1111,30 @@ const char * s2n_connection_get_curve(struct s2n_connection *conn);
 ```
 
 **s2n_connection_get_curve** returns a string indicating the elliptic curve used during ECDHE key exchange. The string "NONE" is returned if no curve has was used.
+
+### Session State Related calls
+
+```c
+int s2n_connection_set_session(struct s2n_connection *conn, const uint8_t *session, size_t length);
+int s2n_connection_get_session(struct s2n_connection *conn, uint8_t *session, size_t max_length);
+ssize_t s2n_connection_get_session_length(struct s2n_connection *conn);
+ssize_t s2n_connection_get_session_id_length(struct s2n_connection *conn);
+int s2n_connection_is_session_resumed(struct s2n_connection *conn);
+```
+
+- **session** session will contain serialized session related information needed to resume handshake.
+- **length** length of the serialized session state.
+- **max_length** Max number of bytes to copy into the **session** buffer.
+
+**s2n_connection_set_session** de-serializes the session state and updates the connection accrodingly.
+
+**s2n_connection_get_session** serializes the session state from connection and copies into the **session** buffer and returns the number of bytes that were copied.
+
+**s2n_connection_get_session_length** returns number of bytes needed to store serailized session state; it can be used to allocate the **session** buffer.
+
+**s2n_connection_get_session_id_length** returns session id length from the connection.
+
+**s2n_connection_is_session_resumed** checks if the handshake is abbreviated or not.
 
 ### s2n\_connection\_wipe
 
@@ -876,6 +1232,16 @@ do {
     bytes_read += r;
 } while (blocked != S2N_NOT_BLOCKED);
 ```
+
+### s2n\_peek
+
+```c
+uint32_t s2n_peek(struct s2n_connection *conn);
+```
+
+**s2n_peek** allows users of S2N to peek inside the data buffer of an S2N connection to see if there more data to be read without actually reading it. This is useful when using select() on the underlying S2N file descriptor with a message based application layer protocol. As a single call to s2n_recv may read all data off the underlying file descriptor, select() will be unable to tell you there if there is more application data ready for processing already loaded into the S2N buffer. s2n_peek can then be used to determine if s2n_recv needs to be called before more data comes in on the raw fd.
+
+
 
 ### s2n\_connection\_set\_send\_cb
 

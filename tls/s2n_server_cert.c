@@ -19,42 +19,52 @@
 #include "error/s2n_errno.h"
 
 #include "tls/s2n_cipher_suites.h"
-#include "tls/s2n_connection.h"
-#include "tls/s2n_config.h"
 #include "tls/s2n_tls.h"
-
-#include "stuffer/s2n_stuffer.h"
 
 #include "utils/s2n_safety.h"
 
 int s2n_server_cert_recv(struct s2n_connection *conn)
 {
     uint32_t size_of_all_certificates;
-
     GUARD(s2n_stuffer_read_uint24(&conn->handshake.io, &size_of_all_certificates));
 
-    if (size_of_all_certificates > s2n_stuffer_data_available(&conn->handshake.io) || size_of_all_certificates < 3) {
-        S2N_ERROR(S2N_ERR_BAD_MESSAGE);
-    }
+    S2N_ERROR_IF(size_of_all_certificates > s2n_stuffer_data_available(&conn->handshake.io) || size_of_all_certificates < 3, S2N_ERR_BAD_MESSAGE);
 
-    struct s2n_cert_public_key public_key;
-    struct s2n_blob cert_chain;
+    s2n_cert_public_key public_key;
+    GUARD(s2n_pkey_zero_init(&public_key));
+
+    s2n_cert_type cert_type;
+    struct s2n_blob cert_chain = {0};
     cert_chain.data = s2n_stuffer_raw_read(&conn->handshake.io, size_of_all_certificates);
     cert_chain.size = size_of_all_certificates;
 
-    GUARD(conn->verify_cert_chain_cb(&cert_chain, &public_key, conn->verify_cert_context));
+    S2N_ERROR_IF(s2n_x509_validator_validate_cert_chain(&conn->x509_validator, conn, cert_chain.data,
+                                                        cert_chain.size, &cert_type, &public_key) != S2N_CERT_OK, S2N_ERR_CERT_UNTRUSTED);
 
-    if(public_key.cert_type != S2N_CERT_TYPE_RSA_SIGN) {
-        S2N_ERROR(S2N_ERR_INVALID_SIGNATURE_ALGORITHM);
+    s2n_authentication_method expected_auth_method = conn->secure.cipher_suite->auth_method;
+
+    switch (cert_type) {
+    case S2N_CERT_TYPE_RSA_SIGN:
+        if (expected_auth_method == S2N_AUTHENTICATION_RSA) {
+            break;
+        }
+    case S2N_CERT_TYPE_ECDSA_SIGN:
+        if (expected_auth_method == S2N_AUTHENTICATION_ECDSA) {
+            break;
+        }
+    default:
+        S2N_ERROR(S2N_ERR_CERT_TYPE_UNSUPPORTED);
     }
-
-    conn->secure.server_rsa_public_key = public_key.public_key.rsa;
+    
+    conn->secure.client_cert_type = cert_type;
+    s2n_pkey_setup_for_type(&public_key, cert_type);
+    conn->secure.server_public_key = public_key;
 
     return 0;
 }
 
 int s2n_server_cert_send(struct s2n_connection *conn)
 {
-    GUARD(s2n_send_cert_chain(&conn->handshake.io, conn->server->server_cert_chain));
+    GUARD(s2n_send_cert_chain(&conn->handshake.io, &conn->server->server_cert_chain->cert_chain));
     return 0;
 }

@@ -22,9 +22,11 @@
 
 #include "tls/s2n_tls_parameters.h"
 #include "tls/s2n_handshake.h"
+#include "tls/s2n_client_hello.h"
 #include "tls/s2n_crypto.h"
 #include "tls/s2n_config.h"
 #include "tls/s2n_prf.h"
+#include "tls/s2n_x509_validator.h"
 
 #include "stuffer/s2n_stuffer.h"
 
@@ -36,25 +38,14 @@
 
 #define S2N_TLS_PROTOCOL_VERSION_LEN    2
 
-typedef enum { S2N_CERT_AUTH_NONE, S2N_CERT_AUTH_REQUIRED } s2n_cert_auth_type;
-
-
- /* Verifies the Certificate Chain of trust and places the leaf Certificate's Public Key in the public_key_out parameter.
- *
- * Does not perform any hostname validation, which is still needed in order to completely validate a Certificate.
- *
- * @param cert_chain_in The DER formatted full chain of certificates recieved
- * @param public_key_out The public key that should be updated with the key extracted from the certificate
- * @param context A pointer to any caller defined context data
- *
- * @return The function should return 0 if Certificate is trusted and public key extraction was successful, and less than
- *         0 if the Certificate is untrusted, or there was some other error.
- */
-typedef int verify_cert_trust_chain(struct s2n_blob *cert_chain_in, struct s2n_cert_public_key *public_key_out, void *context);
+#define is_handshake_complete(conn) (APPLICATION_DATA == s2n_conn_get_current_message_type(conn))
 
 struct s2n_connection {
     /* The configuration (cert, key .. etc ) */
     struct s2n_config *config;
+
+    /* Overrides Cipher Preferences in config if non-null */
+    const struct s2n_cipher_preferences *cipher_pref_override;
 
     /* The user defined context associated with connection */
     void *context;
@@ -74,7 +65,21 @@ struct s2n_connection {
     /* Is this connection using CORK/SO_RCVLOWAT optimizations? Only valid when the connection is using
      * managed_io
      */
-    unsigned int corked_io:1;
+    unsigned corked_io:1;
+
+    /* Session resumption indicator on client side */
+    unsigned client_session_resumed:1;
+
+    /* Determines if we're currently sending or receiving in s2n_shutdown */
+    unsigned close_notify_queued:1;
+
+    /* s2n does not support renegotiation.
+     * RFC5746 Section 4.3 suggests servers implement a minimal version of the
+     * renegotiation_info extension even if renegotiation is not supported.
+     * Some clients may fail the handshake if a corresponding renegotiation_info
+     * extension is not sent back by the server.
+     */
+    unsigned secure_renegotiation:1;
 
     /* Is this connection a client or a server connection */
     s2n_mode mode;
@@ -104,11 +109,6 @@ struct s2n_connection {
     uint8_t actual_protocol_version;
     uint8_t actual_protocol_version_established;
 
-    /* Certificate Authentication and Verification Parameters */
-    s2n_cert_auth_type client_cert_auth_type;
-    verify_cert_trust_chain *verify_cert_chain_cb;
-    void *verify_cert_context;
-
     /* Our crypto parameters */
     struct s2n_crypto_parameters initial;
     struct s2n_crypto_parameters secure;
@@ -118,7 +118,18 @@ struct s2n_connection {
     struct s2n_crypto_parameters *server;
 
     /* The PRF needs some storage elements to work with */
-    union s2n_prf_working_space prf_space;
+    struct s2n_prf_working_space prf_space;
+
+    /* Whether to use client_cert_auth_type stored in s2n_config or in this s2n_connection.
+     *
+     * By default the s2n_connection will defer to s2n_config->client_cert_auth_type on whether or not to use Client Auth.
+     * But users can override Client Auth at the connection level using s2n_connection_set_client_auth_type() without mutating
+     * s2n_config since s2n_config can be shared between multiple s2n_connections. */
+    uint8_t client_cert_auth_type_overridden;
+
+    /* Whether or not the s2n_connection should require the Client to authenticate itself to the server. Only used if
+     * client_cert_auth_type_overridden is non-zero. */
+    s2n_cert_auth_type client_cert_auth_type;
 
     /* Our workhorse stuffers, used for buffering the plaintext
      * and encrypted data in both directions.
@@ -130,7 +141,8 @@ struct s2n_connection {
     enum { ENCRYPTED, PLAINTEXT } in_status;
 
     /* How much of the current user buffer have we already
-     * encrypted and have pending for the wire.
+     * encrypted and sent or have pending for the wire but have
+     * not acknowledged to the user.
      */
     ssize_t current_user_data_consumed;
 
@@ -153,16 +165,26 @@ struct s2n_connection {
     struct s2n_stuffer reader_alert_out;
     struct s2n_stuffer writer_alert_out;
 
-    /* Determines if we're currently sending or receiving in s2n_shutdown */
-    unsigned int close_notify_queued:1;
+    /* Contains parameters needed during the handshake phase */
+    struct s2n_handshake_parameters handshake_params;
 
     /* Our handshake state machine */
     struct s2n_handshake handshake;
 
     /* Maximum outgoing fragment size for this connection. Does not limit
      * incoming record size.
+     *
+     * This value is updated when:
+     *   1. s2n_connection_prefer_low_latency is set
+     *   2. s2n_connection_prefer_throughput is set
+     *   3. TLS Maximum Fragment Length extension is negotiated
+     *
+     * Default value: S2N_DEFAULT_FRAGMENT_LENGTH
      */
     uint16_t max_outgoing_fragment_length;
+
+    /* Negotiated TLS extension Maximum Fragment Length code */
+    uint8_t mfl_code;
 
     /* Keep some accounting on each connection */
     uint64_t wire_bytes_in;
@@ -170,8 +192,8 @@ struct s2n_connection {
 
     /* Is the connection open or closed ? We use C's only
      * atomic type as both the reader and the writer threads
-     * may declare a connection closed. 
-     * 
+     * may declare a connection closed.
+     *
      * A connection can be gracefully closed or hard-closed.
      * When gracefully closed the reader or the writer mark
      * the connection as closing, and then the writer will
@@ -186,14 +208,13 @@ struct s2n_connection {
 
     /* TLS extension data */
     char server_name[256];
-    char application_protocol[256];
-    /* s2n does not support renegotiation.
-     * RFC5746 Section 4.3 suggests servers implement a minimal version of the
-     * renegotiation_info extension even if renegotiation is not supported. 
-     * Some clients may fail the handshake if a corresponding renegotiation_info
-     * extension is not sent back by the server.
+
+    /* The application protocol decided upon during the client hello.
+     * If ALPN is being used, then:
+     * In server mode, this will be set by the time client_hello_cb is invoked.
+     * In client mode, this will be set after is_handshake_complete(connection) is true.
      */
-    unsigned int secure_renegotiation:1;
+    char application_protocol[256];
 
     /* OCSP stapling response data */
     s2n_status_request_type status_type;
@@ -202,6 +223,18 @@ struct s2n_connection {
     /* Certificate Transparency response data */
     s2n_ct_support_level ct_level_requested;
     struct s2n_blob ct_response;
+
+    struct s2n_client_hello client_hello;
+
+    struct s2n_x509_validator x509_validator;
+
+    /* After a connection is created this is the verification function that should always be used. At init time,
+     * the config should be checked for a verify callback and each connection should default to that. However,
+     * from the user's perspective, it's sometimes simpler to manage state by attaching each validation function/data
+     * to the connection, instead of globally to a single config.*/
+    s2n_verify_host_fn verify_host_fn;
+    void *data_for_verify_host;
+    uint8_t verify_host_fn_overridden;
 };
 
 int s2n_connection_is_managed_corked(const struct s2n_connection *s2n_connection);
@@ -213,8 +246,7 @@ int s2n_connection_kill(struct s2n_connection *conn);
 int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
 int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
 
-extern int s2n_connection_set_cert_auth_type(struct s2n_connection *conn, s2n_cert_auth_type cert_auth_type);
-extern int s2n_connection_set_verify_cert_chain_cb(struct s2n_connection *conn, verify_cert_trust_chain *callback, void *context);
-
-int accept_all_rsa_certs(struct s2n_blob *cert_chain_in, struct s2n_cert_public_key *public_key_out, void *context);
-int deny_all_certs(struct s2n_blob *x509_der_cert, struct s2n_cert_public_key *public_key, void *context);
+extern int s2n_connection_get_cipher_preferences(struct s2n_connection *conn, const struct s2n_cipher_preferences **cipher_preferences);
+extern int s2n_connection_set_client_auth_type(struct s2n_connection *conn, s2n_cert_auth_type cert_auth_type);
+extern int s2n_connection_get_client_auth_type(struct s2n_connection *conn, s2n_cert_auth_type *client_cert_auth_type);
+extern int s2n_connection_get_client_cert_chain(struct s2n_connection *conn, uint8_t **der_cert_chain_out, uint32_t *cert_chain_len);

@@ -17,36 +17,33 @@
 
 #include <stdint.h>
 
-#include "crypto/s2n_rsa.h"
+#include <s2n.h>
+#include "crypto/s2n_pkey.h"
 #include "stuffer/s2n_stuffer.h"
-#include "tls/s2n_config.h"
 
-/* RFC's that define below values:
- *  - https://tools.ietf.org/html/rfc5246#section-7.4.4
- *  - https://tools.ietf.org/search/rfc4492#section-5.5
- */
-typedef enum {
-    S2N_CERT_TYPE_RSA_SIGN = 1,
-    S2N_CERT_TYPE_DSS_SIGN = 2,
-    S2N_CERT_TYPE_RSA_FIXED_DH = 3,
-    S2N_CERT_TYPE_DSS_FIXED_DH = 4,
-    S2N_CERT_TYPE_RSA_EPHEMERAL_DH_RESERVED = 5,
-    S2N_CERT_TYPE_DSS_EPHEMERAL_DH_RESERVED = 6,
-    S2N_CERT_TYPE_FORTEZZA_DMS_RESERVED = 20,
-    S2N_CERT_TYPE_ECDSA_SIGN = 64,
-    S2N_CERT_TYPE_RSA_FIXED_ECDH = 65,
-    S2N_CERT_TYPE_ECDSA_FIXED_ECDH = 66,
-} s2n_cert_type;
+#define S2N_MAX_SERVER_NAME 256
 
-struct s2n_cert_public_key {
+struct s2n_cert {
     s2n_cert_type cert_type;
-    union {
-        struct s2n_rsa_public_key rsa;
-        /* TODO: Support other Public Key Types (Eg ECDSA) */
-    } public_key;
+    s2n_cert_public_key public_key;
+    struct s2n_blob raw;
+    struct s2n_cert *next;
 };
 
-int s2n_send_cert_chain(struct s2n_stuffer *out, struct s2n_cert_chain_and_key *chain);
-int s2n_cert_public_key_set_cert_type(struct s2n_cert_public_key *cert_pub_key, s2n_cert_type cert_type);
-int s2n_cert_public_key_get_rsa(struct s2n_cert_public_key *cert_pub_key, struct s2n_rsa_public_key **rsa);
-int s2n_cert_public_key_set_rsa(struct s2n_cert_public_key *cert_pub_key, struct s2n_rsa_public_key rsa);
+struct s2n_cert_chain {
+    uint32_t chain_size;
+    struct s2n_cert *head;
+};
+
+struct s2n_cert_chain_and_key {
+    struct s2n_cert_chain cert_chain;
+    s2n_cert_private_key private_key;
+    struct s2n_blob ocsp_status;
+    struct s2n_blob sct_list;
+    char server_name[S2N_MAX_SERVER_NAME];
+};
+
+int s2n_send_cert_chain(struct s2n_stuffer *out, struct s2n_cert_chain *chain);
+int s2n_send_empty_cert_chain(struct s2n_stuffer *out);
+int s2n_cert_set_cert_type(struct s2n_cert *cert, s2n_cert_type cert_type);
+int s2n_cert_public_key_set_rsa_from_openssl(s2n_cert_public_key *cert_pub_key, RSA *rsa);

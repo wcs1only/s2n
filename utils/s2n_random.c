@@ -236,18 +236,12 @@ int s2n_rand_init(void)
     }
 #if defined(MAP_INHERIT_ZERO)
     zero_if_forked_ptr = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (zero_if_forked_ptr == MAP_FAILED) {
-        S2N_ERROR(S2N_ERR_OPEN_RANDOM);
-    }
+    S2N_ERROR_IF(zero_if_forked_ptr == MAP_FAILED, S2N_ERR_OPEN_RANDOM);
 
-    if (minherit(zero_if_forked_ptr, sizeof(int), MAP_INHERIT_ZERO) == -1) {
-        S2N_ERROR(S2N_ERR_OPEN_RANDOM);
-    }
+    S2N_ERROR_IF(minherit(zero_if_forked_ptr, sizeof(int), MAP_INHERIT_ZERO) == -1, S2N_ERR_OPEN_RANDOM);
 #else
 
-    if (pthread_atfork(NULL, NULL, s2n_on_fork) != 0) {
-        S2N_ERROR(S2N_ERR_OPEN_RANDOM);
-    }
+    S2N_ERROR_IF(pthread_atfork(NULL, NULL, s2n_on_fork) != 0, S2N_ERR_OPEN_RANDOM);
 #endif
 
     GUARD(s2n_defend_if_forked());
@@ -265,9 +259,7 @@ int s2n_rand_init(void)
 
     /* Use that engine for rand() */
     e = ENGINE_by_id("s2n_rand");
-    if (e == NULL || ENGINE_init(e) != 1 || ENGINE_set_default(e, ENGINE_METHOD_RAND) != 1 || ENGINE_free(e) != 1) {
-        S2N_ERROR(S2N_ERR_OPEN_RANDOM);
-    }
+    S2N_ERROR_IF(e == NULL || ENGINE_init(e) != 1 || ENGINE_set_default(e, ENGINE_METHOD_RAND) != 1 || ENGINE_free(e) != 1, S2N_ERR_OPEN_RANDOM);
 #endif
 
     return 0;
@@ -275,12 +267,8 @@ int s2n_rand_init(void)
 
 int s2n_rand_cleanup(void)
 {
-    if (entropy_fd == -1) {
-        S2N_ERROR(S2N_ERR_NOT_INITIALIZED);
-    }
+    S2N_ERROR_IF(entropy_fd == -1, S2N_ERR_NOT_INITIALIZED);
 
-    GUARD(s2n_drbg_wipe(&per_thread_private_drbg));
-    GUARD(s2n_drbg_wipe(&per_thread_public_drbg));
     GUARD(close(entropy_fd));
     entropy_fd = -1;
 
@@ -293,6 +281,14 @@ int s2n_rand_cleanup(void)
         ENGINE_cleanup();
     }
 #endif
+
+    return 0;
+}
+
+int s2n_rand_cleanup_thread(void)
+{
+    GUARD(s2n_drbg_wipe(&per_thread_private_drbg));
+    GUARD(s2n_drbg_wipe(&per_thread_public_drbg));
 
     return 0;
 }
@@ -326,7 +322,7 @@ int s2n_get_rdrand_data(struct s2n_blob *out)
 
 #if defined(__x86_64__) || defined(__i386__)
     int space_remaining = 0;
-    struct s2n_stuffer stuffer;
+    struct s2n_stuffer stuffer = {{0}};
     union {
         uint64_t u64;
         uint8_t u8[8];

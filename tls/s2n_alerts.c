@@ -58,9 +58,7 @@
 
 int s2n_process_alert_fragment(struct s2n_connection *conn)
 {
-    if (s2n_stuffer_data_available(&conn->alert_in) == 2) {
-        S2N_ERROR(S2N_ERR_ALERT_PRESENT);
-    }
+    S2N_ERROR_IF(s2n_stuffer_data_available(&conn->alert_in) == 2, S2N_ERR_ALERT_PRESENT);
 
     while (s2n_stuffer_data_available(&conn->in)) {
         uint8_t bytes_required = 2;
@@ -83,7 +81,7 @@ int s2n_process_alert_fragment(struct s2n_connection *conn)
             }
 
             /* RFC 5077 5.1 - Expire any cached session on an error alert */
-            if (s2n_is_caching_enabled(conn->config) && conn->session_id_len) {
+            if (s2n_allowed_to_cache_connection(conn) && conn->session_id_len) {
                 conn->config->cache_delete(conn->config->cache_delete_data, conn->session_id, conn->session_id_len);
             }
 

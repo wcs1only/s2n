@@ -1,12 +1,33 @@
 <img src="docs/images/s2n_logo_github.png" alt="s2n">
 
-s2n is a C99 implementation of the TLS/SSL protocols that is designed to be simple, small, fast, and with security as a priority. It is released and licensed under the Apache Software License 2.0. 
+s2n is a C99 implementation of the TLS/SSL protocols that is designed to be simple, small, fast, and with security as a priority. It is released and licensed under the Apache License 2.0. 
 
 [![Build Status](https://img.shields.io/travis/awslabs/s2n.svg)](https://travis-ci.org/awslabs/s2n)
 [![Apache 2 License](https://img.shields.io/github/license/awslabs/s2n.svg)](http://aws.amazon.com/apache-2-0/)
 [![C99](https://img.shields.io/badge/language-C99-blue.svg)](http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1256.pdf)
 [![Github forks](https://img.shields.io/github/forks/awslabs/s2n.svg)](https://github.com/awslabs/s2n/network)
 [![Github stars](https://img.shields.io/github/stars/awslabs/s2n.svg)](https://github.com/awslabs/s2n/stargazers)
+[![Join the chat at https://gitter.im/awslabs/s2n](https://badges.gitter.im/awslabs/s2n.svg)](https://gitter.im/awslabs/s2n?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+## Getting Started
+1. Fork s2n on GitHub
+2. Run the following commands on either Ubuntu or Mac OSX.
+```
+git clone https://github.com/${YOUR_GITHUB_ACCOUNT_NAME}/s2n.git
+cd s2n
+
+# Pick an "env" line from the .travis.yml file and run it, in this case choose the openssl-1.1.0 build
+S2N_LIBCRYPTO=openssl-1.1.0 BUILD_S2N=true TESTS=integration GCC6_REQUIRED=true
+
+source .travis/s2n_setup_env.sh
+.travis/s2n_install_test_dependencies.sh
+.travis/s2n_travis_build.sh
+```
+
+### Have a Question?
+If you have any questions about Submitting PR's, Opening Issues, s2n API usage, or something similar, we have a public chatroom available here to answer your questions: https://gitter.im/awslabs/s2n
+
+Otherwise, if you think you might have found a security impacting issue, please instead follow [our Security Notification Process.](#security-issue-notifications)
 
 ## Using s2n
 

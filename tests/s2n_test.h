@@ -20,16 +20,30 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <openssl/crypto.h>
+
 #include "error/s2n_errno.h"
+
+/* Macro definitions for calls that occur within BEGIN_TEST() and END_TEST() to preserve the SKIPPED test behavior
+ * by ignoring the test_count, keeping it as 0 to indicate that a test was skipped. */
+#define EXPECT_TRUE_WITHOUT_COUNT( condition )    { if ( !(condition) ) { FAIL_MSG( #condition " is not true "); } }
+#define EXPECT_FALSE_WITHOUT_COUNT( condition )   EXPECT_TRUE_WITHOUT_COUNT( !(condition) )
+
+#define EXPECT_NOT_EQUAL_WITHOUT_COUNT( p1, p2 )  EXPECT_FALSE_WITHOUT_COUNT( (p1) == (p2) )
+
+#define EXPECT_SUCCESS_WITHOUT_COUNT( function_call )  EXPECT_NOT_EQUAL_WITHOUT_COUNT( (function_call) ,  -1 )
 
 /**
  * This is a very basic, but functional unit testing framework. All testing should
  * happen in main() and start with a BEGIN_TEST() and end with an END_TEST();
- *
  */
-
-#define BEGIN_TEST() int test_count = 0; EXPECT_SUCCESS(s2n_init()); { fprintf(stdout, "Running %-50s ... ", __FILE__); }
-#define END_TEST()   EXPECT_SUCCESS(s2n_cleanup()); { if (isatty(fileno(stdout))) { \
+#ifdef S2N_TEST_IN_FIPS_MODE
+#define BEGIN_TEST() int test_count = 0; EXPECT_NOT_EQUAL_WITHOUT_COUNT(FIPS_mode_set(1), 0); EXPECT_SUCCESS_WITHOUT_COUNT(s2n_init());\
+                            { fprintf(stdout, "Running FIPS test %-50s ... ", __FILE__); }
+#else
+#define BEGIN_TEST() int test_count = 0; EXPECT_SUCCESS_WITHOUT_COUNT(s2n_init()); { fprintf(stdout, "Running %-50s ... ", __FILE__); }
+#endif
+#define END_TEST()   EXPECT_SUCCESS_WITHOUT_COUNT(s2n_cleanup()); { if (isatty(fileno(stdout))) { \
                             if (test_count) { \
                                 fprintf(stdout, "\033[32;1mPASSED\033[0m %10d tests\n", test_count ); \
                             }\
@@ -73,3 +87,12 @@
 
 #define EXPECT_BYTEARRAY_EQUAL( p1, p2, l ) EXPECT_EQUAL( memcmp( (p1), (p2), (l) ), 0 )
 #define EXPECT_STRING_EQUAL( p1, p2 ) EXPECT_EQUAL( strcmp( (p1), (p2) ), 0 )
+
+#define S2N_TEST_ENTER_FIPS_MODE()    { if (FIPS_mode_set(1) == 0) { \
+                                            unsigned long fips_rc = ERR_get_error(); \
+                                            char ssl_error_buf[256]; \
+                                            fprintf(stderr, "s2nd failed to enter FIPS mode with RC: %lu; String: %s\n", fips_rc, ERR_error_string(fips_rc, ssl_error_buf)); \
+                                            return 1; \
+                                        } \
+                                        printf("s2nd entered FIPS mode\n"); \
+                                      }

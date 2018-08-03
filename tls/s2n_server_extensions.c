@@ -31,6 +31,7 @@
 static int s2n_recv_server_alpn(struct s2n_connection *conn, struct s2n_stuffer *extension);
 static int s2n_recv_server_status_request(struct s2n_connection *conn, struct s2n_stuffer *extension);
 static int s2n_recv_server_sct_list(struct s2n_connection *conn, struct s2n_stuffer *extension);
+static int s2n_recv_server_max_frag_len(struct s2n_connection *conn, struct s2n_stuffer *extension);
 
 int s2n_server_extensions_send(struct s2n_connection *conn, struct s2n_stuffer *out)
 {
@@ -52,6 +53,9 @@ int s2n_server_extensions_send(struct s2n_connection *conn, struct s2n_stuffer *
     }
     if (s2n_server_can_send_sct_list(conn)) {
         total_size += 4 + conn->config->cert_and_key_pairs->sct_list.size;
+    }
+    if (conn->mfl_code) {
+        total_size += 5;
     }
 
     if (total_size == 0) {
@@ -109,20 +113,26 @@ int s2n_server_extensions_send(struct s2n_connection *conn, struct s2n_stuffer *
                                       conn->config->cert_and_key_pairs->sct_list.size));
     }
 
+    if (conn->mfl_code) {
+        GUARD(s2n_stuffer_write_uint16(out, TLS_EXTENSION_MAX_FRAG_LEN));
+        GUARD(s2n_stuffer_write_uint16(out, sizeof(uint8_t)));
+        GUARD(s2n_stuffer_write_uint8(out, conn->mfl_code));
+    }
+
     return 0;
 }
 
 int s2n_server_extensions_recv(struct s2n_connection *conn, struct s2n_blob *extensions)
 {
-    struct s2n_stuffer in;
+    struct s2n_stuffer in = {{0}};
 
     GUARD(s2n_stuffer_init(&in, extensions));
     GUARD(s2n_stuffer_write(&in, extensions));
 
     while (s2n_stuffer_data_available(&in)) {
-        struct s2n_blob ext;
+        struct s2n_blob ext = {0};
         uint16_t extension_type, extension_size;
-        struct s2n_stuffer extension;
+        struct s2n_stuffer extension = {{0}};
 
         GUARD(s2n_stuffer_read_uint16(&in, &extension_type));
         GUARD(s2n_stuffer_read_uint16(&in, &extension_size));
@@ -143,6 +153,9 @@ int s2n_server_extensions_recv(struct s2n_connection *conn, struct s2n_blob *ext
             break;
         case TLS_EXTENSION_SCT_LIST:
             GUARD(s2n_recv_server_sct_list(conn, &extension));
+            break;
+        case TLS_EXTENSION_MAX_FRAG_LEN:
+            GUARD(s2n_recv_server_max_frag_len(conn, &extension));
             break;
         }
     }
@@ -188,6 +201,15 @@ int s2n_recv_server_sct_list(struct s2n_connection *conn, struct s2n_stuffer *ex
     notnull_check(sct_list.data);
 
     GUARD(s2n_dup(&sct_list, &conn->ct_response));
+
+    return 0;
+}
+
+int s2n_recv_server_max_frag_len(struct s2n_connection *conn, struct s2n_stuffer *extension)
+{
+    uint8_t mfl_code;
+    GUARD(s2n_stuffer_read_uint8(extension, &mfl_code));
+    S2N_ERROR_IF(mfl_code != conn->config->mfl_code, S2N_ERR_MAX_FRAG_LEN_MISMATCH);
 
     return 0;
 }
