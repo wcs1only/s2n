@@ -219,6 +219,21 @@ extern const char *s2n_connection_get_cipher(struct s2n_connection *conn);
 extern const char *s2n_connection_get_curve(struct s2n_connection *conn);
 extern int s2n_connection_get_alert(struct s2n_connection *conn);
 
+/* Structure that models a public or private key and type-specific operations */
+struct s2n_external_key_store {
+    int (*size)(const struct s2n_pkey *key);
+    int (*sign)(const struct s2n_pkey *priv_key, struct s2n_hash_state *digest, struct s2n_blob *signature);
+    int (*verify)(const struct s2n_pkey *pub_key, struct s2n_hash_state *digest, struct s2n_blob *signature);
+    int (*encrypt)(const struct s2n_pkey *key, struct s2n_blob *in, struct s2n_blob *out);
+    int (*decrypt_async)(uint64_t key_id, const unsigned char *in, unsigned char *out);
+    int (*decrypt_done)(uint64_t key_id, const unsigned char *in, unsigned char *out);
+ (const struct s2n_pkey *key, struct s2n_blob *in, struct s2n_blob *out);
+    int (*match)(const struct s2n_pkey *pub_key, const struct s2n_pkey *priv_key); 
+    int (*free)(struct s2n_pkey *key);
+    int (*check_key)(const struct s2n_pkey *key);
+};
+
+ RSA_public_encrypt(in->size, (unsigned char *)in->data, (unsigned char *)out->data, key->rsa, RSA_PKCS1_PADDING);
 #ifdef __cplusplus
 }
 #endif
