@@ -121,7 +121,7 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules)
 
 find_package(LibCrypto REQUIRED)
-target_link_libraries(s2n PRIVATE LibCrypto::Crypto PRIVATE ${OS_LIBS})
+target_link_libraries(s2n PRIVATE LibCrypto::Crypto PRIVATE ${OS_LIBS} m)
 
 target_include_directories(s2n PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_include_directories(s2n PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/api> $<INSTALL_INTERFACE:include>)
@@ -150,7 +150,7 @@ file(GLOB UNITTESTS_SRC "tests/unit/*.c")
     target_include_directories(${test_case_name} PRIVATE api)
     target_include_directories(${test_case_name} PRIVATE ./)
     target_include_directories(${test_case_name} PRIVATE tests)
-    target_compile_options(${test_case_name} PRIVATE -Wno-implicit-function-declaration -std=c99)
+    target_compile_options(${test_case_name} PRIVATE -Wno-implicit-function-declaration -D_POSIX_C_SOURCE=200809L -std=c99)
     add_test(NAME ${test_case_name} COMMAND $<TARGET_FILE:${test_case_name}> WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit)
 
     set_property(
