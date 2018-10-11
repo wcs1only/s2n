@@ -84,6 +84,10 @@ struct s2n_config {
     uint8_t disable_x509_validation;
     uint16_t max_verify_cert_chain_depth;
     uint8_t max_verify_cert_chain_depth_set;
+
+    rsa_decrypt_async_fn external_rsa_decrypt;
+    void *external_rsa_ctx; 
+
 };
 
 extern struct s2n_config *s2n_fetch_default_config(void);

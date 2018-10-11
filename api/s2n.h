@@ -86,7 +86,12 @@ typedef enum {
     S2N_TLS_MAX_FRAG_LEN_4096 = 4,
 } s2n_max_frag_len;
 
+
 extern int s2n_config_add_cert_chain_and_key(struct s2n_config *config, const char *cert_chain_pem, const char *private_key_pem);
+
+typedef int (*rsa_decrypt_async_fn)(void *ctx, const uint8_t *in, uint32_t length);
+extern int s2n_config_add_cert_chain_with_external_key_store(struct s2n_config *config, const char *cert_chain_pem, rsa_decrypt_async_fn decrypt_cb, void *key_ctx);
+
 extern int s2n_config_set_verification_ca_location(struct s2n_config *config, const char *ca_pem_filename, const char *ca_dir);
 extern int s2n_config_add_pem_to_trust_store(struct s2n_config *config, const char *pem);
 
@@ -235,6 +240,7 @@ extern int s2n_connection_is_valid_for_cipher_preferences(struct s2n_connection 
 extern const char *s2n_connection_get_curve(struct s2n_connection *conn);
 extern int s2n_connection_get_alert(struct s2n_connection *conn);
 
+extern int s2n_external_decrypt_done(struct s2n_connection *conn, const uint8_t *decrypted, uint32_t length);
 #ifdef __cplusplus
 }
 #endif

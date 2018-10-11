@@ -30,41 +30,19 @@
 #include "utils/s2n_safety.h"
 #include "utils/s2n_random.h"
 
-static int s2n_rsa_client_key_recv(struct s2n_connection *conn)
+
+static int s2n_gen_master_secret(struct s2n_connection *conn)
 {
-    struct s2n_stuffer *in = &conn->handshake.io;
+    struct s2n_blob pms;
     uint8_t client_protocol_version[S2N_TLS_PROTOCOL_VERSION_LEN];
-    uint16_t length;
-
-    if (conn->actual_protocol_version == S2N_SSLv3) {
-        length = s2n_stuffer_data_available(in);
-    } else {
-        GUARD(s2n_stuffer_read_uint16(in, &length));
-    }
-
-    S2N_ERROR_IF(length > s2n_stuffer_data_available(in), S2N_ERR_BAD_MESSAGE);
-
-    /* Keep a copy of the client protocol version in wire format */
+    
     client_protocol_version[0] = conn->client_protocol_version / 10;
     client_protocol_version[1] = conn->client_protocol_version % 10;
-
-    /* Decrypt the pre-master secret */
-    struct s2n_blob pms, encrypted;
+    
     pms.data = conn->secure.rsa_premaster_secret;
     pms.size = S2N_TLS_SECRET_LEN;
 
-    encrypted.size = s2n_stuffer_data_available(in);
-    encrypted.data = s2n_stuffer_raw_read(in, length);
-    notnull_check(encrypted.data);
-    gt_check(encrypted.size, 0);
-
-    /* First: use a random pre-master secret */
-    GUARD(s2n_get_private_random_data(&pms));
-    conn->secure.rsa_premaster_secret[0] = client_protocol_version[0];
-    conn->secure.rsa_premaster_secret[1] = client_protocol_version[1];
-
-    /* Set rsa_failed to 1 if s2n_pkey_decrypt returns anything other than zero */
-    conn->handshake.rsa_failed = !!s2n_pkey_decrypt(&conn->config->cert_and_key_pairs->private_key, &encrypted, &pms);
+    conn->block_on_other_events = 0;
 
     /* Set rsa_failed to 1, if it isn't already, if the protocol version isn't what we expect */
     conn->handshake.rsa_failed |= !s2n_constant_time_equals(client_protocol_version, pms.data, S2N_TLS_PROTOCOL_VERSION_LEN);
@@ -84,6 +62,63 @@ static int s2n_rsa_client_key_recv(struct s2n_connection *conn)
     }
 
     return 0;
+}
+
+static int s2n_rsa_client_key_recv(struct s2n_connection *conn)
+{
+
+    struct s2n_stuffer *in = &conn->handshake.io;
+    uint8_t client_protocol_version[S2N_TLS_PROTOCOL_VERSION_LEN];
+    uint16_t length;
+
+    if (conn->actual_protocol_version == S2N_SSLv3) {
+        length = s2n_stuffer_data_available(in);
+    } else {
+        GUARD(s2n_stuffer_read_uint16(in, &length));
+    }
+
+    S2N_ERROR_IF(length > s2n_stuffer_data_available(in), S2N_ERR_BAD_MESSAGE);
+
+    /* Keep a copy of the client protocol version in wire format */
+    client_protocol_version[0] = conn->client_protocol_version / 10;
+    client_protocol_version[1] = conn->client_protocol_version % 10;
+
+    /* Decrypt the pre-master secret */
+    struct s2n_blob pms;
+    pms.data = conn->secure.rsa_premaster_secret;
+    pms.size = S2N_TLS_SECRET_LEN;
+
+    conn->secure.encrypted.size = s2n_stuffer_data_available(in);
+    conn->secure.encrypted.data = s2n_stuffer_raw_read(in, length);
+    notnull_check(conn->secure.encrypted.data);
+    gt_check(conn->secure.encrypted.size, 0);
+
+    /* First: use a random pre-master secret */
+    GUARD(s2n_get_private_random_data(&pms));
+    conn->secure.rsa_premaster_secret[0] = client_protocol_version[0];
+    conn->secure.rsa_premaster_secret[1] = client_protocol_version[1];
+
+    conn->block_on_other_events = 1;
+
+    if (conn->config->external_rsa_decrypt) {
+        //GUARD(s2n_pkey_decrypt_async(&conn->config->cert_external_keystore_ctx, &conn->secure.encrypted));
+        return 0;
+    }
+         
+    /* Set rsa_failed to 1 if s2n_pkey_decrypt returns anything other than zero */
+    conn->handshake.rsa_failed = !!s2n_pkey_decrypt(&conn->config->cert_and_key_pairs->private_key, &conn->secure.encrypted, &pms);
+
+    return s2n_gen_master_secret(conn);
+    
+}
+
+   
+int s2n_external_decrypt_done(struct s2n_connection *conn, const uint8_t *decrypted, uint32_t length) 
+{ 
+
+    memcpy_check(conn->secure.rsa_premaster_secret, decrypted, S2N_TLS_SECRET_LEN);
+
+    return s2n_gen_master_secret(conn);
 }
 
 static int s2n_dhe_client_key_recv(struct s2n_connection *conn)
