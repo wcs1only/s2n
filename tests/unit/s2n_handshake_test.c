@@ -167,12 +167,48 @@ int test_cipher_preferences(struct s2n_config *server_config, struct s2n_config 
     return 0;
 }
 
+int rsa_decrypt_async(void *ctx, const uint8_t *in, uint32_t length) {
+    abort();
+    return 0; 
+}
+
 int main(int argc, char **argv)
 {
 
     BEGIN_TEST();
 
     EXPECT_SUCCESS(setenv("S2N_ENABLE_CLIENT_MODE", "1", 0));
+    // test_with_external_rsa();
+    {
+        struct s2n_config *server_config, *client_config;
+        char *cert_chain_pem;
+        char *private_key_pem;
+        char *dhparams_pem;
+
+        EXPECT_NOT_NULL(cert_chain_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
+        EXPECT_NOT_NULL(private_key_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
+        EXPECT_NOT_NULL(dhparams_pem = malloc(S2N_MAX_TEST_PEM_SIZE));
+
+        EXPECT_NOT_NULL(server_config = s2n_config_new());
+
+        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_CERT_CHAIN, cert_chain_pem, S2N_MAX_TEST_PEM_SIZE));
+        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_PRIVATE_KEY, private_key_pem, S2N_MAX_TEST_PEM_SIZE));
+        EXPECT_SUCCESS(s2n_read_test_pem(S2N_DEFAULT_TEST_DHPARAMS, dhparams_pem, S2N_MAX_TEST_PEM_SIZE));
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_with_external_key_store(server_config, cert_chain_pem, rsa_decrypt_async, NULL));
+        EXPECT_SUCCESS(s2n_config_add_dhparams(server_config, dhparams_pem));
+    
+        client_config = s2n_fetch_unsafe_client_testing_config();
+        
+        EXPECT_SUCCESS(s2n_config_set_verification_ca_location(client_config, S2N_DEFAULT_TEST_CERT_CHAIN, NULL));
+
+        EXPECT_SUCCESS(test_cipher_preferences(server_config, client_config));
+
+        EXPECT_SUCCESS(s2n_config_free(server_config));
+        free(cert_chain_pem);
+        free(private_key_pem);
+        free(dhparams_pem);
+
+    }
     
     // test_with_rsa_cert();
     {
@@ -205,6 +241,7 @@ int main(int argc, char **argv)
         free(dhparams_pem);
 
     }
+    
 
     //    test_with_ecdsa_cert()
     {

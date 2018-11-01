@@ -85,5 +85,4 @@ struct s2n_crypto_parameters {
     uint8_t client_sequence_number[S2N_TLS_SEQUENCE_NUM_LEN];
     uint8_t server_sequence_number[S2N_TLS_SEQUENCE_NUM_LEN];
 
-    struct s2n_blob encrypted;
 };

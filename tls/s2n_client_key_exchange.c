@@ -84,14 +84,14 @@ static int s2n_rsa_client_key_recv(struct s2n_connection *conn)
     client_protocol_version[1] = conn->client_protocol_version % 10;
 
     /* Decrypt the pre-master secret */
-    struct s2n_blob pms;
+    struct s2n_blob pms, encrypted;
     pms.data = conn->secure.rsa_premaster_secret;
     pms.size = S2N_TLS_SECRET_LEN;
 
-    conn->secure.encrypted.size = s2n_stuffer_data_available(in);
-    conn->secure.encrypted.data = s2n_stuffer_raw_read(in, length);
-    notnull_check(conn->secure.encrypted.data);
-    gt_check(conn->secure.encrypted.size, 0);
+    encrypted.size = s2n_stuffer_data_available(in);
+    encrypted.data = s2n_stuffer_raw_read(in, length);
+    notnull_check(encrypted.data);
+    gt_check(encrypted.size, 0);
 
     /* First: use a random pre-master secret */
     GUARD(s2n_get_private_random_data(&pms));
@@ -101,12 +101,12 @@ static int s2n_rsa_client_key_recv(struct s2n_connection *conn)
     conn->block_on_other_events = 1;
 
     if (conn->config->external_rsa_decrypt) {
-        //GUARD(s2n_pkey_decrypt_async(&conn->config->cert_external_keystore_ctx, &conn->secure.encrypted));
+        GUARD(conn->config->external_rsa_decrypt(conn->config->external_rsa_ctx, encrypted.data, encrypted.size));
         return 0;
     }
          
     /* Set rsa_failed to 1 if s2n_pkey_decrypt returns anything other than zero */
-    conn->handshake.rsa_failed = !!s2n_pkey_decrypt(&conn->config->cert_and_key_pairs->private_key, &conn->secure.encrypted, &pms);
+    conn->handshake.rsa_failed = !!s2n_pkey_decrypt(&conn->config->cert_and_key_pairs->private_key, &encrypted, &pms);
 
     return s2n_gen_master_secret(conn);
     
